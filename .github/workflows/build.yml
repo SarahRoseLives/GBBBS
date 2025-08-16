@@ -13,6 +13,12 @@ jobs:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
+    # ✅ FIX: Set the default working directory for all run commands
+    # Based on your screenshot, the Flutter project is in the 'gbbbs' subdirectory.
+    defaults:
+      run:
+        working-directory: gbbbs
+
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Step 1: Check out your repository's code
@@ -33,6 +39,7 @@ jobs:
           channel: 'stable'
 
       # Step 4: Install your project's dependencies
+      # This will now correctly run inside the 'gbbbs' folder
       - name: Install dependencies
         run: flutter pub get
 
@@ -43,7 +50,7 @@ jobs:
           VERSION_NAME=${{ github.ref_name }}
           VERSION_NAME=${VERSION_NAME#v}
           
-          # Use the total commit count as the build number
+          # Use the GitHub run number as the build number for uniqueness
           BUILD_NUMBER=${{ github.run_number }}
 
           # Update the version line in the pubspec.yaml file
@@ -61,7 +68,7 @@ jobs:
         with:
           # The name of the release will be the same as the tag
           name: Release ${{ github.ref_name }}
-          # The body of the release can be automatically generated from your commits, or you can write custom notes
+          # The body of the release can be automatically generated from your commits
           generate_release_notes: true
-          # Find the built APK file and attach it to the release
+          # The path to the APK is now relative to the working-directory
           files: build/app/outputs/flutter-apk/app-release.apk
