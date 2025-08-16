@@ -41,37 +41,33 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # ✅ FIX: Add this new step to insert the missing namespace
+      # Step 5: Patch the bluetooth package's missing namespace
       - name: Patch flutter_bluetooth_serial Namespace
         run: |
           sed -i "s/android {/android {\n    namespace 'io.github.edufolly.flutterbluetoothserial'/" $HOME/.pub-cache/hosted/pub.dev/flutter_bluetooth_serial-0.4.0/android/build.gradle
 
-      # Step 5: Update the app version in pubspec.yaml from the Git tag
+      # ✅ FIX: Add this new step to update the Android compileSdkVersion
+      - name: Force Android Compile SDK Version
+        run: |
+          sed -i "s/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/" android/app/build.gradle
+
+      # Step 6: Update the app version in pubspec.yaml from the Git tag
       - name: Update Version
         run: |
-          # Extract the version number from the tag (e.g., v1.0.1 -> 1.0.1)
           VERSION_NAME=${{ github.ref_name }}
           VERSION_NAME=${VERSION_NAME#v}
-          
-          # Use the GitHub run number as the build number for uniqueness
           BUILD_NUMBER=${{ github.run_number }}
-
-          # Update the version line in the pubspec.yaml file
           sed -i "s/^version: .*/version: $VERSION_NAME+$BUILD_NUMBER/" pubspec.yaml
-          
           echo "Updated pubspec.yaml to version: $(grep '^version:' pubspec.yaml)"
 
-      # Step 6: Build the release APK
+      # Step 7: Build the release APK
       - name: Build APK
         run: flutter build apk --release
 
-      # Step 7: Create a formal GitHub Release and upload the APK as an asset
+      # Step 8: Create a formal GitHub Release and upload the APK as an asset
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # The name of the release will be the same as the tag
           name: Release ${{ github.ref_name }}
-          # The body of the release can be automatically generated from your commits
           generate_release_notes: true
-          # The path to the APK is now relative to the working-directory
           files: build/app/outputs/flutter-apk/app-release.apk
