@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/bbs_packet.dart';
+import '../../models/board_post.dart';
 
 class ServerScreen extends StatefulWidget {
   final dynamic tncController;
@@ -16,12 +19,40 @@ class _ServerScreenState extends State<ServerScreen> {
   final _callsignController = TextEditingController(text: "BBS-1");
   final List<String> _logMessages = [];
   final Set<String> _connectedClients = {};
+  List<BoardPost> _boardPosts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPosts();
+  }
 
   @override
   void dispose() {
     _bbsSubscription?.cancel();
     _callsignController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadPosts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final postsJson = prefs.getStringList('bbs_posts') ?? [];
+    if (postsJson.isNotEmpty && mounted) {
+      final loadedPosts = postsJson
+          .map((jsonString) => BoardPost.fromJson(jsonDecode(jsonString)))
+          .toList();
+      setState(() {
+        _boardPosts = loadedPosts;
+      });
+      _log("Loaded ${_boardPosts.length} posts from storage.");
+    }
+  }
+
+  Future<void> _savePosts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final postsJson =
+        _boardPosts.map((post) => jsonEncode(post.toJson())).toList();
+    await prefs.setStringList('bbs_posts', postsJson);
   }
 
   void _log(String message) {
@@ -77,6 +108,12 @@ class _ServerScreenState extends State<ServerScreen> {
       });
       widget.tncController.sendBbsPacket(packet.source, ">CONN_ACK<");
       _log("Sent connection ACK to ${packet.source}. Client connected.");
+
+      // Send existing board posts to the new client
+      _log("Sending ${_boardPosts.length} board posts to ${packet.source}.");
+      for (final post in _boardPosts) {
+        widget.tncController.sendBbsPacket(packet.source, post.toString());
+      }
     }
   }
 
@@ -90,10 +127,51 @@ class _ServerScreenState extends State<ServerScreen> {
   }
 
   void _handleClientMessage(BbsPacket packet) {
-    _log("RX from ${packet.source}: ${packet.info}");
-    // Simple ACK by echoing the message back
-    widget.tncController.sendBbsPacket(
-        packet.source, ">ACK< You said: ${packet.info}");
+    BoardPost? newPost;
+
+    // Handle new post from a client
+    if (packet.info.startsWith("POST|")) {
+      final parts = packet.info.split('|');
+      if (parts.length == 3) {
+        _log("New post from ${packet.source}: ${parts[1]}");
+        newPost = BoardPost.createNew(
+          author: packet.source,
+          subject: parts[1],
+          body: parts[2],
+        );
+      }
+    }
+    // Handle a reply from a client
+    else if (packet.info.startsWith("REPLY|")) {
+      final parts = packet.info.split('|');
+      if (parts.length == 4) {
+         _log("New reply from ${packet.source}: ${parts[2]}");
+         newPost = BoardPost.createReply(
+           toThreadId: parts[1],
+           author: packet.source,
+           subject: parts[2],
+           body: parts[3],
+         );
+      }
+    }
+
+    if (newPost != null) {
+      setState(() {
+          _boardPosts.add(newPost!);
+      });
+      _savePosts(); // Save posts whenever a new one is added
+
+      // Broadcast the new post to all connected clients
+      _log("Broadcasting new post to ${_connectedClients.length} clients.");
+      for (final clientCallsign in _connectedClients) {
+        widget.tncController.sendBbsPacket(clientCallsign, newPost.toString());
+      }
+    } else {
+      // Handle other message types
+      _log("RX from ${packet.source}: ${packet.info}");
+      widget.tncController.sendBbsPacket(
+          packet.source, ">ACK< You said: ${packet.info}");
+    }
   }
 
   @override
@@ -163,7 +241,9 @@ class _ServerScreenState extends State<ServerScreen> {
           else
             Wrap(
               spacing: 8.0,
-              children: _connectedClients.map((call) => Chip(label: Text(call))).toList(),
+              children: _connectedClients
+                  .map((call) => Chip(label: Text(call)))
+                  .toList(),
             ),
         ],
       ),

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/bbs_packet.dart';
+import '../../models/board_post.dart';
+import 'widgets/message_board.dart';
 
 enum ClientConnectionStatus { disconnected, connecting, connected, failed }
 
@@ -21,6 +23,9 @@ class _ClientScreenState extends State<ClientScreen> {
   final _serverCallsignCtrl = TextEditingController(text: "BBS-1");
   final List<String> _logMessages = [];
   String? _connectedCallsign;
+
+  // State for the message board
+  final List<BoardPost> _boardPosts = [];
 
   @override
   void dispose() {
@@ -45,6 +50,7 @@ class _ClientScreenState extends State<ClientScreen> {
     setState(() {
       _status = ClientConnectionStatus.connecting;
       _logMessages.clear();
+      _boardPosts.clear();
     });
     _log("Connecting to $serverCall as $userCall...");
 
@@ -53,7 +59,6 @@ class _ClientScreenState extends State<ClientScreen> {
     widget.tncController.sendBbsPacket(serverCall, ">CONNECT<");
     _connectedCallsign = serverCall;
 
-    // Timeout for connection
     Timer(const Duration(seconds: 15), () {
       if (_status == ClientConnectionStatus.connecting) {
         if (!mounted) return;
@@ -78,17 +83,39 @@ class _ClientScreenState extends State<ClientScreen> {
   }
 
   void _listenForPackets() {
-    _bbsSubscription?.cancel(); // Ensure only one listener is active
+    _bbsSubscription?.cancel();
     _bbsSubscription = widget.tncController.bbsPacketStream.listen((packet) {
       if (!mounted) return;
-      if (_status == ClientConnectionStatus.connecting &&
-          packet.info == ">CONN_ACK<") {
+      if (_status == ClientConnectionStatus.connecting && packet.info == ">CONN_ACK<") {
         setState(() => _status = ClientConnectionStatus.connected);
-        _log("Connection successful!");
+        _log("Connection successful! Receiving board posts...");
+      } else if (packet.info.startsWith("BOARD|")) {
+        final post = BoardPost.fromString(packet.info);
+        if (post != null) {
+          setState(() {
+            _boardPosts.removeWhere((p) => p.id == post.id);
+            _boardPosts.add(post);
+            _boardPosts.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+          });
+        }
       } else {
         _log("BBS > ${packet.info}");
       }
     });
+  }
+
+  void _sendNewPost(String subject, String body) {
+    if (_status != ClientConnectionStatus.connected || _connectedCallsign == null) return;
+    final packetInfo = "POST|$subject|$body";
+    widget.tncController.sendBbsPacket(_connectedCallsign!, packetInfo);
+    _log("You > Sent new post: $subject");
+  }
+
+  void _sendReply(String subject, String body, String threadId) {
+     if (_status != ClientConnectionStatus.connected || _connectedCallsign == null) return;
+    final packetInfo = "REPLY|$threadId|$subject|$body";
+    widget.tncController.sendBbsPacket(_connectedCallsign!, packetInfo);
+    _log("You > Sent reply: $subject");
   }
 
   @override
@@ -201,7 +228,11 @@ class _ClientScreenState extends State<ClientScreen> {
 
   Widget _buildConnectedContent() {
     final List<Widget> pages = [
-      _MessageBoard(bbsCallsign: _connectedCallsign ?? ""),
+      MessageBoard(
+          posts: _boardPosts,
+          onNewPost: _sendNewPost,
+          onReply: _sendReply,
+          bbsCallsign: _connectedCallsign ?? ""),
       _PrivateMessages(),
       _UserInfo(userCallsign: widget.tncController.userCallsign),
     ];
@@ -209,119 +240,30 @@ class _ClientScreenState extends State<ClientScreen> {
   }
 }
 
-// Message Board Tab
-class _MessageBoard extends StatelessWidget {
-  final String bbsCallsign;
-  const _MessageBoard({required this.bbsCallsign});
-
-  @override
-  Widget build(BuildContext context) {
-    final messages = [
-      {"author": "K0ABC", "subject": "Field Day Plans", "body": "Who's coming?"},
-      {"author": "W1XYZ", "subject": "Lost HT", "body": "Found an HT at the park, DM me."},
-      {"author": "Sysop", "subject": "Welcome!", "body": "Welcome to $bbsCallsign BBS."},
-    ];
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16.0),
-      itemCount: messages.length,
-      itemBuilder: (context, idx) {
-        final msg = messages[idx];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            title: Text(msg["subject"] ?? ""),
-            subtitle: Text(msg["body"] ?? ""),
-            leading: CircleAvatar(child: Text(msg["author"]![0])),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-            onTap: () {
-              showDialog(
-                context: context,
-                builder: (_) => AlertDialog(
-                  title: Text(msg["subject"] ?? ""),
-                  content: Text("${msg["body"]}\n\nFrom: ${msg["author"]}"),
-                  actions: [
-                    TextButton(
-                      child: const Text("Reply"),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        // Implement reply UI
-                      },
-                    ),
-                    TextButton(
-                      child: const Text("Close"),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-}
-
-// Private Messages Tab
+// Private Messages Tab (Placeholder)
 class _PrivateMessages extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final messages = [
-      {"from": "Sysop", "body": "Your registration is complete."},
-      {"from": "W1XYZ", "body": "Meet at 10am?"},
-    ];
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16.0),
-      itemCount: messages.length,
-      itemBuilder: (context, idx) {
-        final msg = messages[idx];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            leading: const Icon(Icons.mail_outline),
-            title: Text("From: ${msg["from"]}"),
-            subtitle: Text(msg["body"] ?? ""),
-            trailing: const Icon(Icons.reply_outlined),
-            onTap: () {
-              // Implement reply UI
-            },
-          ),
-        );
-      },
-    );
+    return const Center(child: Text("Private messaging coming soon."));
   }
 }
 
-// User Info Tab
+// User Info Tab (Placeholder)
 class _UserInfo extends StatelessWidget {
   final String userCallsign;
   const _UserInfo({required this.userCallsign});
   @override
   Widget build(BuildContext context) {
-    // Example user info
-    const name = "Sarah";
-    const unreadMessages = 1;
-
     return Padding(
       padding: const EdgeInsets.all(32.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(Icons.person, size: 72, color: Theme.of(context).colorScheme.primary),
+          Icon(Icons.person,
+              size: 72, color: Theme.of(context).colorScheme.primary),
           const SizedBox(height: 16),
-          Text("Callsign: $userCallsign", style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text("Name: $name", style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 24),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.mail_outline),
-              title: const Text("Unread Messages"),
-              trailing: Text("$unreadMessages"),
-            ),
-          ),
+          Text("Callsign: $userCallsign",
+              style: Theme.of(context).textTheme.headlineSmall),
         ],
       ),
     );
