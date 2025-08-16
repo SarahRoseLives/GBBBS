@@ -13,8 +13,7 @@ jobs:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
-    # ✅ FIX: Set the default working directory for all run commands
-    # Based on your screenshot, the Flutter project is in the 'gbbbs' subdirectory.
+    # Set the default working directory for all run commands to your project folder
     defaults:
       run:
         working-directory: gbbbs
@@ -39,9 +38,13 @@ jobs:
           channel: 'stable'
 
       # Step 4: Install your project's dependencies
-      # This will now correctly run inside the 'gbbbs' folder
       - name: Install dependencies
         run: flutter pub get
+
+      # ✅ FIX: Add this new step to insert the missing namespace
+      - name: Patch flutter_bluetooth_serial Namespace
+        run: |
+          sed -i "s/android {/android {\n    namespace 'io.github.edufolly.flutterbluetoothserial'/" $HOME/.pub-cache/hosted/pub.dev/flutter_bluetooth_serial-0.4.0/android/build.gradle
 
       # Step 5: Update the app version in pubspec.yaml from the Git tag
       - name: Update Version
